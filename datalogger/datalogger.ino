@@ -2,7 +2,9 @@
 #include "Translation.h"
 
 #include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
+#include <Adafruit_BME680.h>
+#include <Wire.h>
+#include <SPI.h>
 #include <ArduinoHttpClient.h>
 #include <Arduino_JSON.h>
 #include <ESP8266WiFi.h>
@@ -14,11 +16,13 @@
 #include <TimeLib.h>        //https://github.com/PaulStoffregen/Time.git
 #include <PubSubClient.h>   // For MQTT (in this case publishing only)
 
-Adafruit_BME280 bme;  // I2C
+Adafruit_BME680 bme;   // I2C
 WiFiUDP udp;
 EasyNTPClient ntpClient(udp, NTP_SERVER, TZ_SEC + DST_SEC);
 
 float measured_temp;
+float measured_gas;
+float measured_altitude;
 float adjusted_temp;
 float measured_humi;
 float adjusted_humi;
@@ -59,7 +63,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println();
   Serial.println("Start of Sbrubbles Weather Station V3.0");
-
+  
   // Voltage divider R1 = 220k+100k+220k =540k and R2=100k
   float calib_factor = 4.2;  // change this value to calibrate the battery voltage
   unsigned long raw = analogRead(A0);
@@ -76,7 +80,7 @@ void setup() {
   measurementEvent();
   writeSpiffsOperations();
   calculateZambrettiWords();
-  sendDataToServer();
+  //sendDataToServer();
   pushDataToMQTT();
   goToSleep(sleepTimeMin);
 }
@@ -108,6 +112,10 @@ void pushDataToMQTT() {
   }
   delay(50);
 
+  char _gas[8];                        // Buffer big enough for 7-character float
+  dtostrf(measured_gas, 3, 1, _gas);  // Leave room for too large numbers!
+  mqttPubClient.publish("sbrubbles/garten-2/gas", _gas, 1);  // ,1 = retained
+  delay(50);
 
   char _adjusted_humi[8];                        // Buffer big enough for 7-character float
   dtostrf(adjusted_humi, 3, 1, _adjusted_humi);  // Leave room for too large numbers!
@@ -374,28 +382,52 @@ void connectToMQTT() {
 
 void measurementEvent() {
   bool bme_status;
-  bme_status = bme.begin(0x76);  // address either 0x76 or 0x77
+  bme_status = bme.begin();  // address either 0x76 or 0x77
+  
   if (!bme_status) {
-    Serial.println("Could not find a valid BME280 sensor, check wiring!");
+    Serial.println("Could not find a valid BME680 sensor, check wiring!");
   }
 
-  Serial.println("---> Measuring...");
-  Serial.println("forced mode, 1x temperature / 1x humidity / 1x pressure oversampling,");
-  Serial.println("filter off");
+  bme.setTemperatureOversampling(BME680_OS_8X);
+  bme.setHumidityOversampling(BME680_OS_2X);
+  bme.setPressureOversampling(BME680_OS_4X);
+  bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+  bme.setGasHeater(320, 150); // 320*C for 150 ms  
 
-  bme.setSampling(Adafruit_BME280::MODE_FORCED,
-                  Adafruit_BME280::SAMPLING_X1,  // temperature
-                  Adafruit_BME280::SAMPLING_X1,  // pressure
-                  Adafruit_BME280::SAMPLING_X1,  // humidity
-                  Adafruit_BME280::FILTER_OFF);
+  // bme.setSampling(Adafruit_BME280::MODE_FORCED,
+  //                 Adafruit_BME280::SAMPLING_X1,  // temperature
+  //                 Adafruit_BME280::SAMPLING_X1,  // pressure
+  //                 Adafruit_BME280::SAMPLING_X1,  // humidity
+  //                 Adafruit_BME280::FILTER_OFF);
 
   // Measures absolute Pressure, Temperature, Humidity, Voltage, calculate relative pressure,
   // Dewpoint, Dewpoint Spread, Heat Index
 
-  bme.takeForcedMeasurement();
+  //bme.takeForcedMeasurement();
+  unsigned long endTime = bme.beginReading();
+  if (endTime == 0) {
+    Serial.println(F("Failed to begin reading :("));
+    return;
+  }  
+
+  Serial.print(F("Reading started at "));
+  Serial.print(millis());
+  Serial.print(F(" and will finish at "));
+  Serial.println(endTime); 
+
+  // There's no need to delay() until millis() >= endTime: bme.endReading()
+  // takes care of that. It's okay for parallel work to take longer than
+  // BME680's measurement time.
+
+  // Obtain measurement results from BME680. Note that this operation isn't
+  // instantaneous even if milli() >= endTime due to I2C/SPI latency.
+  if (!bme.endReading()) {
+    Serial.println(F("Failed to complete reading :("));
+    return;
+  }   
 
   // Get temperature
-  measured_temp = bme.readTemperature();
+  measured_temp = bme.readTemperature() -5.0;
   // print on serial monitor
   Serial.print("Temp: ");
   Serial.print(measured_temp);
@@ -414,6 +446,16 @@ void measurementEvent() {
   Serial.print("Pressure: ");
   Serial.print(measured_pres);
   Serial.print("hPa; ");
+
+  measured_gas = bme.gas_resistance / 1000.0;
+  Serial.print(F("Gas = "));
+  Serial.print(measured_gas);
+  Serial.println(F(" KOhms"));
+
+  measured_altitude = bme.readAltitude(measured_pres);
+  Serial.print(F("Approx. Altitude = "));
+  Serial.print(measured_altitude);
+  Serial.println(F(" m"));  
 
   // Calculate and print relative pressure
   SLpressure_hPa = (((measured_pres * 100.0) / pow((1 - ((float)(ELEVATION)) / 44330), 5.255)) / 100.0);
