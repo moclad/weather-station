@@ -7,7 +7,7 @@
 
 ******* Transaltion tables ****************************************/
 
-#if LANGUAGE == 'EN'
+#if LANGUAGE == 1
 const char TEXT_AIR_PRESSURE[] = "Pressure";
 const char TEXT_RISING_FAST[] = "Rising fast";
 const char TEXT_RISING[] = "Rising";
@@ -48,7 +48,7 @@ const char TEXT_ZAMBRETTI_Z[] = "Stormy, much rain";
 const char TEXT_ZAMBRETTI_0[] = "Battery empty, please recharge!";
 const char TEXT_ZAMBRETTI_DEFAULT[] = "Sorry, no forecast at the moment";
 
-#elif LANGUAGE == 'DE'
+#elif LANGUAGE == 2
 const char TEXT_AIR_PRESSURE[] = "Luftdruck";
 const char TEXT_RISING_FAST[] = "rasch steigend";
 const char TEXT_RISING[] = "steigend";
