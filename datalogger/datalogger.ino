@@ -22,6 +22,7 @@ EasyNTPClient ntpClient(udp, NTP_SERVER, TZ_SEC + DST_SEC);
 
 float measured_temp;
 float measured_gas;
+float measured_iaq;
 float measured_altitude;
 float adjusted_temp;
 float measured_humi;
@@ -80,9 +81,9 @@ void setup() {
   measurementEvent();
   writeSpiffsOperations();
   calculateZambrettiWords();
-  //sendDataToServer();
+  sendDataToServer();
   pushDataToMQTT();
-  goToSleep(sleepTimeMin);
+  goToSleep();
 }
 
 void loop() {  // loop is not used
@@ -115,6 +116,11 @@ void pushDataToMQTT() {
   char _gas[8];                        // Buffer big enough for 7-character float
   dtostrf(measured_gas, 3, 1, _gas);  // Leave room for too large numbers!
   mqttPubClient.publish("sbrubbles/garten-2/gas", _gas, 1);  // ,1 = retained
+  delay(50);
+
+  char _iaq[8];                        // Buffer big enough for 7-character float
+  dtostrf(measured_iaq, 3, 1, _iaq);  // Leave room for too large numbers!
+  mqttPubClient.publish("sbrubbles/garten-2/iaq", _iaq, 1);  // ,1 = retained
   delay(50);
 
   char _adjusted_humi[8];                        // Buffer big enough for 7-character float
@@ -162,23 +168,23 @@ void pushDataToMQTT() {
   char _DewPointSpread[8];                         // Buffer big enough for 7-character float
   dtostrf(DewPointSpread, 3, 1, _DewPointSpread);  // Leave room for too large numbers!
 
-  mqttPubClient.publish("sbrubbles/garten-2/dewpointspread", _DewPointSpread, 1);  // ,1 = retained
+  mqttPubClient.publish("sbrubbles/garten-2/dewpointspread", _DewPointSpread, 0);  // ,1 = retained
   delay(50);
 
   char tmp1[128];
   ZambrettisWords.toCharArray(tmp1, 128);
-  mqttPubClient.publish("sbrubbles/garten-2/zambrettisays", tmp1, 1);
+  mqttPubClient.publish("sbrubbles/garten-2/zambrettisays", tmp1, 0);
   delay(50);
 
   char tmp2[128];
   trend_in_words.toCharArray(tmp2, 128);
-  mqttPubClient.publish("sbrubbles/garten-2/trendinwords", tmp2, 1);
+  mqttPubClient.publish("sbrubbles/garten-2/trendinwords", tmp2, 0);
   delay(50);
 
   char _trend[8];                                  // Buffer big enough for 7-character float
   dtostrf(pressure_difference[11], 3, 2, _trend);  // Leave room for too large numbers!
 
-  mqttPubClient.publish("sbrubbles/garten-2/trend", _trend, 1);  // ,1 = retained
+  mqttPubClient.publish("sbrubbles/garten-2/trend", _trend, 0);  // ,1 = retained
   delay(50);
 }
 
@@ -202,6 +208,8 @@ void sendDataToServer() {
   doc["accuracy"] = accuracy_in_percent;
   doc["trend"] = trend_in_words;
   doc["dew_point_spread"] = DewPointSpread;
+  doc["iaq"] = measured_iaq;
+  doc["gas"] = measured_gas;
 
   String contentType = "application/json";
   String jsonString = JSON.stringify(doc);
@@ -426,6 +434,7 @@ void measurementEvent() {
     return;
   }   
 
+
   // Get temperature
   measured_temp = bme.readTemperature() -5.0;
   // print on serial monitor
@@ -452,7 +461,11 @@ void measurementEvent() {
   Serial.print(measured_gas);
   Serial.println(F(" KOhms"));
 
-  measured_altitude = bme.readAltitude(measured_pres);
+  measured_iaq = calculateIAQ(bme.gas_resistance, bme.humidity);
+  Serial.print("IAQ Score: ");
+  Serial.println(measured_iaq);  
+
+  measured_altitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
   Serial.print(F("Approx. Altitude = "));
   Serial.print(measured_altitude);
   Serial.println(F(" m"));  
@@ -924,17 +937,42 @@ void closeWifiConnection() {
   }
 }
 
-void goToSleep(unsigned int sleepmin) {
-  closeMQTTConnection(sleepmin);
+void goToSleep() {
+  closeMQTTConnection(sleepTimeMin);
   closeWifiConnection();
 
   Serial.print("Going to sleep now for ");
-  Serial.print(sleepmin);
+  Serial.print(sleepTimeMin);
   Serial.print(" Minute(s).");
-  ESP.deepSleep(sleepmin * 60 * 1000000);  // convert to microseconds
+  ESP.deepSleep(sleepTimeMin * 60 * 1000000);  // convert to microseconds
 
   //delay(1 * 60 * 1000000);
   //resetFunc();
 
   Serial.println("Going to sleep for a while.");
+}
+
+float calculateIAQ(float gasResistance, float humidity) {
+  // Normwerte (je nach Umgebung feinjustieren)
+  float gas_min = 10000;     // 10 kΩ
+  float gas_max = 500000;    // 500 kΩ
+  float hum_optimal = 40.0;  // ideale Luftfeuchtigkeit
+  
+  // Gas score (0–75)
+  gasResistance = constrain(gasResistance, gas_min, gas_max);
+  float gas_score = (gasResistance - gas_min) / (gas_max - gas_min) * 75.0;
+
+  // Humidity score (0–25)
+  float hum_deviation = abs(humidity - hum_optimal);
+  float hum_score = max(0.0, 25.0 - (hum_deviation * 0.5));  // z. B. 1 % Abweichung = -0,5 Punkte
+
+  // Gesamtscore (0 = schlecht, 100 = sehr gut)
+  float total_score = gas_score + hum_score;
+  Serial.print("Total score: ");
+  Serial.println(total_score);
+
+  // Umrechnung in IAQ 0–500 (höher = schlechter)
+  float iaq = 500 - (total_score * 5.0);
+
+  return constrain(iaq, 0.0, 500.0);
 }

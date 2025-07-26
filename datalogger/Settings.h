@@ -18,7 +18,7 @@ const char *mqtt_client = "sbrubbles-garten-2";
 const char *sensor_name = "sbrubbles-garten-2";
 
 const char neofelis_server_address[] = "sbrubbles-srv3";
-const char neofelis_path[] = "/v1/sensors";
+const char neofelis_path[] = "/v2/sensors";
 const int neofelis_port = 9000;
 
 const char root_ca [] PROGMEM = R"CERT(
@@ -51,7 +51,7 @@ const char root_ca [] PROGMEM = R"CERT(
 #define ELEVATION (290)
 #define SEALEVELPRESSURE_HPA (1013.25)
 
-#define sleepTimeMin (1)
+#define sleepTimeMin (20)
 
 #define LANGUAGE 2
 
