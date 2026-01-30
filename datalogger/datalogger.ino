@@ -16,7 +16,7 @@
 #include <TimeLib.h>        //https://github.com/PaulStoffregen/Time.git
 #include <PubSubClient.h>   // For MQTT (in this case publishing only)
 
-Adafruit_BME680 bme;   // I2C
+Adafruit_BME680 bme;  // I2C
 WiFiUDP udp;
 EasyNTPClient ntpClient(udp, NTP_SERVER, TZ_SEC + DST_SEC);
 
@@ -64,12 +64,14 @@ void setup() {
   Serial.begin(115200);
   Serial.println();
   Serial.println("Start of Sbrubbles Weather Station V3.0");
-  
-  // Voltage divider R1 = 220k+100k+220k =540k and R2=100k
-  float calib_factor = 4.2;  // change this value to calibrate the battery voltage
-  unsigned long raw = analogRead(A0);
-  volt = raw * calib_factor / 4095;
 
+  // Voltage divider R1 = 220k+100k+220k =540k and R2=100k
+  float calib_factor = 4.8;  // change this value to calibrate the battery voltage
+  unsigned long raw = analogRead(A0);
+  volt = raw * calib_factor / 1024;
+
+
+  Serial.print(raw, 2);  // print with 2 decimal places
   Serial.print("Voltage = ");
   Serial.print(volt, 2);  // print with 2 decimal places
   Serial.println(" V");
@@ -113,13 +115,13 @@ void pushDataToMQTT() {
   }
   delay(50);
 
-  char _gas[8];                        // Buffer big enough for 7-character float
-  dtostrf(measured_gas, 3, 1, _gas);  // Leave room for too large numbers!
+  char _gas[8];                                              // Buffer big enough for 7-character float
+  dtostrf(measured_gas, 3, 1, _gas);                         // Leave room for too large numbers!
   mqttPubClient.publish("sbrubbles/garten-2/gas", _gas, 1);  // ,1 = retained
   delay(50);
 
-  char _iaq[8];                        // Buffer big enough for 7-character float
-  dtostrf(measured_iaq, 3, 1, _iaq);  // Leave room for too large numbers!
+  char _iaq[8];                                              // Buffer big enough for 7-character float
+  dtostrf(measured_iaq, 3, 1, _iaq);                         // Leave room for too large numbers!
   mqttPubClient.publish("sbrubbles/garten-2/iaq", _iaq, 1);  // ,1 = retained
   delay(50);
 
@@ -222,7 +224,7 @@ void sendDataToServer() {
   if (useHTTPS) {
     Serial.println("Using HTTPS connection");
     // Configure HTTPS client
-     httpsClient.setInsecure(); // Skip certificate validation (use only for testing)
+    httpsClient.setInsecure();  // Skip certificate validation (use only for testing)
     //httpsClient.setTrustAnchors(&cert);
     // For production, use: httpsClient.setCACert(rootCA); with proper certificate
 
@@ -391,7 +393,7 @@ void connectToMQTT() {
 void measurementEvent() {
   bool bme_status;
   bme_status = bme.begin();  // address either 0x76 or 0x77
-  
+
   if (!bme_status) {
     Serial.println("Could not find a valid BME680 sensor, check wiring!");
   }
@@ -400,7 +402,7 @@ void measurementEvent() {
   bme.setHumidityOversampling(BME680_OS_2X);
   bme.setPressureOversampling(BME680_OS_4X);
   bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
-  bme.setGasHeater(320, 150); // 320*C for 150 ms  
+  bme.setGasHeater(320, 150);  // 320*C for 150 ms
 
   // bme.setSampling(Adafruit_BME280::MODE_FORCED,
   //                 Adafruit_BME280::SAMPLING_X1,  // temperature
@@ -416,12 +418,12 @@ void measurementEvent() {
   if (endTime == 0) {
     Serial.println(F("Failed to begin reading :("));
     return;
-  }  
+  }
 
   Serial.print(F("Reading started at "));
   Serial.print(millis());
   Serial.print(F(" and will finish at "));
-  Serial.println(endTime); 
+  Serial.println(endTime);
 
   // There's no need to delay() until millis() >= endTime: bme.endReading()
   // takes care of that. It's okay for parallel work to take longer than
@@ -432,11 +434,11 @@ void measurementEvent() {
   if (!bme.endReading()) {
     Serial.println(F("Failed to complete reading :("));
     return;
-  }   
+  }
 
 
   // Get temperature
-  measured_temp = bme.readTemperature() -5.0;
+  measured_temp = bme.readTemperature();
   // print on serial monitor
   Serial.print("Temp: ");
   Serial.print(measured_temp);
@@ -463,12 +465,12 @@ void measurementEvent() {
 
   measured_iaq = calculateIAQ(bme.gas_resistance, bme.humidity);
   Serial.print("IAQ Score: ");
-  Serial.println(measured_iaq);  
+  Serial.println(measured_iaq);
 
   measured_altitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
   Serial.print(F("Approx. Altitude = "));
   Serial.print(measured_altitude);
-  Serial.println(F(" m"));  
+  Serial.println(F(" m"));
 
   // Calculate and print relative pressure
   SLpressure_hPa = (((measured_pres * 100.0) / pow((1 - ((float)(ELEVATION)) / 44330), 5.255)) / 100.0);
@@ -957,7 +959,7 @@ float calculateIAQ(float gasResistance, float humidity) {
   float gas_min = 10000;     // 10 kΩ
   float gas_max = 500000;    // 500 kΩ
   float hum_optimal = 40.0;  // ideale Luftfeuchtigkeit
-  
+
   // Gas score (0–75)
   gasResistance = constrain(gasResistance, gas_min, gas_max);
   float gas_score = (gasResistance - gas_min) / (gas_max - gas_min) * 75.0;
